@@ -507,11 +507,9 @@ void R_ProjectSprite_batched (mobj_t* things_list)
     for (int i=0; i < num_things; i++) {
 	    // remark: I have combined two minus for the gyt
 	    tzs[i] = gxts[i] + gyts[i];
-	    printf("+ [%i] tzs: %i\n", i, tzs[i]);
 
 	    // thing is behind view plane?
 	    if (tzs[i] < MINZ) {
-		    printf("plan skip..");
 		    states[i].skip = true;
 	    }
     }
@@ -523,13 +521,11 @@ void R_ProjectSprite_batched (mobj_t* things_list)
     fixed_t txs[num_things];
     for (int i=0; i < num_things; i++) {
 	    if (states[i].skip) {
-		    printf("skip..\n");
 		    continue;
 	    }
 
 	    // remark: I have combined two minus for the gxt
 	    txs[i] = -(gyts[i] - gxts[i]);
-	    printf("+ [%i] txs: %i\n", i, txs[i]);
 	    
 	    // too far off the side?
 	    if (abs(txs[i]) > (tzs[i] << 2))
@@ -639,8 +635,6 @@ void R_ProjectSprite_batched (mobj_t* things_list)
 		     states[i].vis->startfrac += states[i].vis->xiscale*(states[i].vis->x1-x1s[i]);
 
 		states[i].vis->patch = states[i].lump;
-		printf("+ [%i] patch: %i\n", i, states[i].vis->patch);
-
 		if (thing->flags & MF_SHADOW)
 		{
 		        // shadow draw

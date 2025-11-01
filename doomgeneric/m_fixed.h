@@ -32,11 +32,14 @@
 typedef int fixed_t;
 
 fixed_t FixedMul	(fixed_t a, fixed_t b);
-int FixedMul_batched	(fixed_t* a, fixed_t* b, fixed_t* res, unsigned int num);
+int FixedMul_batched	(fixed_t* as, fixed_t* bs, fixed_t* res, unsigned int num);
+int FixedMul_scalar	(fixed_t* as, fixed_t b, fixed_t* res, unsigned int num);
 fixed_t FixedDiv	(fixed_t a, fixed_t b);
-int FixedDiv_batched	(fixed_t* a, fixed_t* b, fixed_t* res, unsigned int num);
+int FixedDiv_batched	(fixed_t* as, fixed_t* bs, fixed_t* res, unsigned int num);
 int FixedAddOffset_batched	(fixed_t* a, fixed_t offset, fixed_t* res, unsigned int num);
 
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 
 #endif

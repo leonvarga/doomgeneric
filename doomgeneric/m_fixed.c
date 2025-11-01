@@ -75,6 +75,15 @@ int FixedMul_batched(fixed_t* as, fixed_t* bs, fixed_t* res, unsigned int num)
 	return num;
 }
 
+int FixedMul_scalar(fixed_t* as, fixed_t b, fixed_t* res, unsigned int num) 
+{
+	for (int i=0; i < num; i++) {
+    		res[i] = _FixedMul(as[i], b);
+	}
+
+	return num;
+}
+
 //
 // FixedDiv, C version.
 //

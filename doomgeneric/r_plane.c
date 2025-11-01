@@ -170,6 +170,119 @@ R_MapPlane
     spanfunc ();	
 }
 
+//
+// R_MapPlane
+//
+// Uses global vars:
+//  planeheight
+//  ds_source
+//  basexscale
+//  baseyscale
+//  viewx
+//  viewy
+//
+// BASIC PRIMITIVE
+//
+// @author Leon Varga
+// modified to work in batched mode
+//
+void
+R_MapPlane_batched
+( int*		ys,
+  int*		x1s,
+  int*		x2s, 
+  int num_elements)
+{
+    angle_t	angles[num_elements];
+    fixed_t	distances[num_elements];
+    fixed_t	lengths[num_elements];
+    unsigned	indices[num_elements];
+    boolean cached[num_elements];
+
+    fixed_t distscales [num_elements];
+    fixed_t as [num_elements];
+
+    int as_pos= 0;
+    for (int i=0; i < num_elements; i++) {
+	#ifdef RANGECHECK
+    	if (x2s[i] < x1s[i]
+	      || x1s[i] < 0
+	      || x2s[i] >= viewwidth
+	      || ys[i] > viewheight)
+	     {
+		 I_Error ("R_MapPlane: %i, %i at %i",x1s[i],x2s[i],ys[i]);
+	     }
+        #endif
+
+	if (planeheight == cachedheight[ys[i]]) {
+		cached[i] = true;
+    		distances[i] = cacheddistance[ys[i]];
+    		ds_xstep = cachedxstep[ys[i]];
+    		ds_ystep = cachedystep[ys[i]];
+	}else {
+		cached[i] = false;
+    		cachedheight[ys[i]] = planeheight;
+
+		as[as_pos] = yslope[ys[i]];
+		as_pos++;
+	}
+
+	distscales[i] = distscale[x1s[i]];
+    }
+
+
+    fixed_t res_dis [as_pos];
+    fixed_t res_ds_x [as_pos];
+    fixed_t res_ds_y [as_pos];
+    FixedMul_scalar(as, planeheight, res_dis, as_pos);
+    FixedMul_scalar(res_dis, basexscale, res_ds_x, as_pos);
+    FixedMul_scalar(res_dis, baseyscale, res_ds_y, as_pos);
+
+    as_pos= 0;
+    for (int i=0; i < num_elements; i++) {
+	    if (!cached[i]) {
+		    distances[i] = cacheddistance[ys[i]] = res_dis[as_pos];
+		    ds_xstep = cachedxstep[ys[i]] = res_ds_x[as_pos];
+		    ds_ystep = cachedystep[ys[i]] = res_ds_y[as_pos];
+
+		    as_pos++;
+	    
+	    }
+    }
+
+    FixedMul_batched(distances, distscales, lengths, num_elements);
+
+    // for (int i=0; i < num_elements; i++) {
+    // 	angles[i] = (viewangle + xtoviewangle[x1s[i]])>>angletofineshift;
+    // }
+
+
+
+
+    // angle = (viewangle + xtoviewangle[x1])>>angletofineshift;
+    // ds_xfrac = viewx + fixedmul(finecosine[angle], length);
+    // ds_yfrac = -viewy - fixedmul(finesine[angle], length);
+
+    // if (fixedcolormap)
+    //     ds_colormap = fixedcolormap;
+    // else
+    // {
+    //     index = distance >> lightzshift;
+    //     
+    //     if (index >= maxlightz )
+    //         index = maxlightz-1;
+
+    //     ds_colormap = planezlight[index];
+    // }
+    //     
+    // ds_y = y;
+    // ds_x1 = x1;
+    // ds_x2 = x2;
+
+    // // high or low detail
+    // spanfunc ();	
+}
+
 
 //
 // R_ClearPlanes
@@ -328,6 +441,20 @@ R_MakeSpans
   int		t2,
   int		b2 )
 {
+    int num_elements = max(min((t2-t1), (b1-t1+1)), 0);
+    printf("num_elements: %i\n", num_elements);
+
+    int ys[num_elements]; 
+    int x1s[num_elements]; 
+    int x2s[num_elements]; 
+    for (int i=0; i<num_elements; i++) {
+	ys[i] = t1+i;
+	x1s[i] = spanstart[ys[i]];
+	x2s[i] = x-1;
+    }
+    r_MapPlane_batched(ys, x1s, x2s, num_elements);
+
+    
     while (t1 < t2 && t1<=b1)
     {
 	R_MapPlane (t1,spanstart[t1],x-1);
