@@ -434,6 +434,239 @@ R_DrawVisSprite
     colfunc = basecolfunc;
 }
 
+struct project_sprite_state_t{
+    boolean             skip;
+    
+    spritedef_t*	sprdef;
+    spriteframe_t*	sprframe;
+    int			lump;
+    
+    unsigned		rot;
+    boolean		flip;
+    
+    vissprite_t*	vis;
+    
+    angle_t		ang;
+};
+
+
+
+
+
+//
+// R_ProjectSprite in a batched version
+// @author: Leon Varga
+// Generates a vissprite for a thing
+//  if it might be visible.
+//
+void R_ProjectSprite_batched (mobj_t* things_list)
+{
+    // count elements
+    unsigned int num_things = 0;
+    for (mobj_t* thing = things_list ; thing ; thing = thing->snext)
+    {
+	    num_things++;
+    }
+
+    // FIXME: remove
+    // num_things = 1;
+
+    struct project_sprite_state_t states[num_things];
+    
+    fixed_t tr_xs[num_things];
+    fixed_t tr_ys[num_things];
+    fixed_t viewcoss[num_things];
+    fixed_t viewsins[num_things];
+    fixed_t projections[num_things];
+    fixed_t fractunits[num_things];
+
+    // transform the origin point
+    mobj_t* thing = things_list;
+    for (int i=0; i < num_things; i++) {
+	    tr_xs[i] = thing->x - viewx;
+	    tr_ys[i] = thing->y - viewy;
+
+	    // prefill multiplication pairs
+	    viewcoss[i] = viewcos;
+	    viewsins[i] = viewsin;
+	    projections[i] = projection;
+	    fractunits[i] = FRACUNIT;
+
+	    states[i].skip = false;
+
+	    thing = thing->snext;
+    }
+
+    fixed_t gxts[num_things];
+    fixed_t gyts[num_things];
+    FixedMul_batched(tr_xs, viewcoss, gxts, num_things);
+    FixedMul_batched(tr_ys, viewsins, gyts, num_things);
+
+    fixed_t tzs[num_things];
+    fixed_t xscales[num_things];
+    for (int i=0; i < num_things; i++) {
+	    // remark: I have combined two minus for the gyt
+	    tzs[i] = gxts[i] + gyts[i];
+	    printf("+ [%i] tzs: %i\n", i, tzs[i]);
+
+	    // thing is behind view plane?
+	    if (tzs[i] < MINZ) {
+		    printf("plan skip..");
+		    states[i].skip = true;
+	    }
+    }
+    FixedDiv_batched(projections, tzs, xscales, num_things);
+
+    FixedMul_batched(tr_xs, viewsins, gxts, num_things);
+    FixedMul_batched(tr_ys, viewcoss, gyts, num_things);
+
+    fixed_t txs[num_things];
+    for (int i=0; i < num_things; i++) {
+	    if (states[i].skip) {
+		    printf("skip..\n");
+		    continue;
+	    }
+
+	    // remark: I have combined two minus for the gxt
+	    txs[i] = -(gyts[i] - gxts[i]);
+	    printf("+ [%i] txs: %i\n", i, txs[i]);
+	    
+	    // too far off the side?
+	    if (abs(txs[i]) > (tzs[i] << 2))
+		    states[i].skip = true;
+    }
+
+    thing = things_list;
+    for (int i=0; i < num_things; i++) {
+	 if (!states[i].skip) {
+		 #ifdef RANGECHECK
+		     if ((unsigned int) thing->sprite >= (unsigned int) numsprites)
+			I_Error ("R_ProjectSprite: invalid sprite number %i ",
+				 thing->sprite);
+		 #endif
+		     states[i].sprdef = &sprites[thing->sprite];
+
+		 #ifdef RANGECHECK
+		     if ( (thing->frame&FF_FRAMEMASK) >= states[i].sprdef->numframes )
+			I_Error ("R_ProjectSprite: invalid sprite frame %i : %i ",
+				 thing->sprite, thing->frame);
+		 #endif
+		     states[i].sprframe = &states[i].sprdef->spriteframes[ thing->frame & FF_FRAMEMASK];
+
+		if (states[i].sprframe->rotate)
+		{
+		     // choose a different rotation based on player view
+		     states[i].ang = R_PointToAngle (thing->x, thing->y);
+		     states[i].rot = (states[i].ang - thing->angle + (unsigned)(ANG45/2)*9)>>29;
+		     states[i].lump = states[i].sprframe->lump[states[i].rot];
+		     states[i].flip = (boolean)states[i].sprframe->flip[states[i].rot];
+		}else {
+		     // use single rotation for all views
+		     states[i].lump = states[i].sprframe->lump[0];
+		     states[i].flip = (boolean)states[i].sprframe->flip[0];
+		}
+
+		// calculate edges of the shape
+		txs[i] -= spriteoffset[states[i].lump];
+	}
+
+	thing = thing->snext;
+    }
+    fixed_t x1s[num_things];
+    FixedMul_batched(txs, xscales, x1s, num_things);
+    FixedAddOffset_batched(x1s, centerxfrac, x1s, num_things);
+
+    for (int i=0; i < num_things; i++) {
+	    if (states[i].skip)
+		    continue;
+
+            x1s[i] = x1s[i] >> FRACBITS;
+            // off the right side?
+            if (x1s[i] > viewwidth)
+	    {
+        	    states[i].skip = true;
+		    continue;
+	    }
+            
+            txs[i] += spritewidth[states[i].lump];
+    }
+
+    fixed_t x2s[num_things];
+    FixedMul_batched(txs, xscales, x2s, num_things);
+    FixedAddOffset_batched(x2s, centerxfrac, x2s, num_things);
+
+    thing = things_list;
+    for (int i=0; i < num_things; i++) {
+            x2s[i] = (x2s[i] >> FRACBITS) - 1;
+	    
+	    // off the left side?
+	    if (x2s[i] < 0)
+		    states[i].skip = true;
+
+	    if (!states[i].skip) {
+		   // store information in a vissprite
+		   states[i].vis = R_NewVisSprite ();
+		   states[i].vis->mobjflags = thing->flags;
+		   states[i].vis->scale = xscales[i]<<detailshift;
+		   states[i].vis->gx = thing->x;
+		   states[i].vis->gy = thing->y;
+		   states[i].vis->gz = thing->z;
+		   states[i].vis->gzt = thing->z + spritetopoffset[states[i].lump];
+		   states[i].vis->texturemid = states[i].vis->gzt - viewz;
+		   states[i].vis->x1 = x1s[i] < 0 ? 0 : x1s[i];
+		   states[i].vis->x2 = x2s[i] >= viewwidth ? viewwidth-1 : x2s[i];	
+	    }
+
+	   thing = thing->snext;
+    }
+
+    fixed_t iscales[num_things];
+    FixedDiv_batched(fractunits, xscales, iscales, num_things);
+
+    thing = things_list;
+    for (int i=0; i < num_things; i++) {
+    	if (!states[i].skip) {
+		if (states[i].flip) {
+		      states[i].vis->startfrac = spritewidth[states[i].lump]-1;
+		      states[i].vis->xiscale = -iscales[i];
+	        } else {
+		      states[i].vis->startfrac = 0;
+		      states[i].vis->xiscale = iscales[i];
+		}
+
+		if (states[i].vis->x1 > x1s[i])
+		     // TODO: multiplication 	
+		     states[i].vis->startfrac += states[i].vis->xiscale*(states[i].vis->x1-x1s[i]);
+
+		states[i].vis->patch = states[i].lump;
+		printf("+ [%i] patch: %i\n", i, states[i].vis->patch);
+
+		if (thing->flags & MF_SHADOW)
+		{
+		        // shadow draw
+		        states[i].vis->colormap = NULL;
+		}else if (fixedcolormap) {
+		        // fixed map
+		        states[i].vis->colormap = fixedcolormap;
+		}else if (thing->frame & FF_FULLBRIGHT) {
+		        states[i].vis->colormap = colormaps;
+		}else {
+		        int index;
+
+		        // diminished light
+		        index = xscales[i]>>(LIGHTSCALESHIFT-detailshift);
+		        
+		        if (index >= MAXLIGHTSCALE)
+		     	   index = MAXLIGHTSCALE-1;
+
+		        states[i].vis->colormap = spritelights[index];
+		
+		}
+	}
+
+	thing = thing->snext;
+    }
+}
 
 
 //
@@ -627,8 +860,22 @@ void R_AddSprites (sector_t* sec)
 	spritelights = scalelight[lightnum];
 
     // Handle all things in sector.
-    for (thing = sec->thinglist ; thing ; thing = thing->snext)
-	R_ProjectSprite (thing);
+    printf("START\n");
+    int i=0;
+    // for (thing = sec->thinglist ; thing ; thing = thing->snext) {
+    //         printf("[%i]", i);
+    //     R_ProjectSprite (thing);
+    //     i++;
+
+    // }
+    printf("\n");
+    if (sec->thinglist)
+    {
+	    // R_ProjectSprite (sec->thinglist);
+
+	    R_ProjectSprite_batched(sec->thinglist);
+    }
+    printf("STOP\n");
 }
 
 
