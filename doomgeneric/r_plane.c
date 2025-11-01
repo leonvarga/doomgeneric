@@ -459,18 +459,28 @@ R_MakeSpans
 	x1s[i] = spanstart[ys[i]];
 	x2s[i] = x-1;
     }
-    R_MapPlane_batched(ys, x1s, x2s, num_elements);
+    // R_MapPlane_batched(ys, x1s, x2s, num_elements);
 
     
-    // while (t1 < t2 && t1<=b1)
-    // {
-    //     R_MapPlane (t1,spanstart[t1],x-1);
-    //     t1++;
-    // }
+    while (t1 < t2 && t1<=b1)
+    {
+        R_MapPlane (t1,spanstart[t1],x-1);
+        t1++;
+    }
+    num_elements = MAX(MIN((b2-b1), (b1-t1+1)), 0);
+    int ys_2[num_elements]; 
+    int x1s_2[num_elements]; 
+    int x2s_2[num_elements]; 
+    for (int i=0; i<num_elements; i++) {
+	ys_2[i] = b1-i;
+	x1s_2[i] = spanstart[ys_2[i]];
+	x2s_2[i] = x-1;
+    }
+    // R_MapPlane_batched(ys_2, x1s_2, x2s_2, num_elements);
     while (b1 > b2 && b1>=t1)
     {
-	R_MapPlane (b1,spanstart[b1],x-1);
-	b1--;
+        R_MapPlane (b1,spanstart[b1],x-1);
+        b1--;
     }
 	
     while (t2 < t1 && t2<=b2)
