@@ -45,6 +45,7 @@
 // 0x100000000 to 0x2000
 #define ANGLETOFINESHIFT	19		
 
+// TODO: could be mapped to the nonlinearity
 // Effective size is 10240.
 extern const fixed_t finesine[5*FINEANGLES/4];
 
