@@ -141,6 +141,15 @@ P_RecursiveSound
     }
 }
 
+// calc dx and dt based on a angle and a speed dt
+// @author Leon Varga
+void calc_dx_dy(fixed_t dt, fixed_t an, fixed_t res[2]){
+	fixed_t as[2];
+	as[0] = finecosine[an];
+	as[1] = finesine[an];
+
+	FixedMul_scalar(as, dt, res, 2);
+}
 
 
 //
@@ -1055,8 +1064,11 @@ void A_Tracer (mobj_t* actor)
     }
 	
     exact = actor->angle>>ANGLETOFINESHIFT;
-    actor->momx = FixedMul (actor->info->speed, finecosine[exact]);
-    actor->momy = FixedMul (actor->info->speed, finesine[exact]);
+    fixed_t res[2];
+    fixed_t speed = actor->info->speed;
+    calc_dx_dy(speed, exact, res);
+    actor->momx = res[0];
+    actor->momy = res[1];
     
     // change slope
     dist = P_AproxDistance (dest->x - actor->x,
@@ -1256,10 +1268,12 @@ void A_Fire (mobj_t* actor)
 	return;
 
     an = dest->angle >> ANGLETOFINESHIFT;
+    fixed_t res[2];
+    calc_dx_dy(24*FRACUNIT, an, res);
 
     P_UnsetThingPosition (actor);
-    actor->x = dest->x + FixedMul (24*FRACUNIT, finecosine[an]);
-    actor->y = dest->y + FixedMul (24*FRACUNIT, finesine[an]);
+    actor->x = dest->x + res[0];
+    actor->y = dest->y + res[1];
     actor->z = dest->z;
     P_SetThingPosition (actor);
 }
@@ -1320,8 +1334,11 @@ void A_VileAttack (mobj_t* actor)
 	return;
 		
     // move the fire between the vile and the player
-    fire->x = actor->target->x - FixedMul (24*FRACUNIT, finecosine[an]);
-    fire->y = actor->target->y - FixedMul (24*FRACUNIT, finesine[an]);	
+    fixed_t res[2];
+    calc_dx_dy(24*FRACUNIT, an, res);
+
+    fire->x = actor->target->x - res[0];
+    fire->y = actor->target->y - res[0];
     P_RadiusAttack (fire, actor, 70 );
 }
 
@@ -1359,8 +1376,11 @@ void A_FatAttack1 (mobj_t* actor)
     mo = P_SpawnMissile (actor, target, MT_FATSHOT);
     mo->angle += FATSPREAD;
     an = mo->angle >> ANGLETOFINESHIFT;
-    mo->momx = FixedMul (mo->info->speed, finecosine[an]);
-    mo->momy = FixedMul (mo->info->speed, finesine[an]);
+    fixed_t res[2];
+    calc_dx_dy(mo->info->speed, an, res);
+
+    mo->momx = res[0];
+    mo->momy = res[1];
 }
 
 void A_FatAttack2 (mobj_t* actor)
@@ -1378,8 +1398,11 @@ void A_FatAttack2 (mobj_t* actor)
     mo = P_SpawnMissile (actor, target, MT_FATSHOT);
     mo->angle -= FATSPREAD*2;
     an = mo->angle >> ANGLETOFINESHIFT;
-    mo->momx = FixedMul (mo->info->speed, finecosine[an]);
-    mo->momy = FixedMul (mo->info->speed, finesine[an]);
+    fixed_t res[2];
+    calc_dx_dy(mo->info->speed, an, res);
+
+    mo->momx = res[0];
+    mo->momy = res[1];
 }
 
 void A_FatAttack3 (mobj_t*	actor)
@@ -1395,14 +1418,17 @@ void A_FatAttack3 (mobj_t*	actor)
     mo = P_SpawnMissile (actor, target, MT_FATSHOT);
     mo->angle -= FATSPREAD/2;
     an = mo->angle >> ANGLETOFINESHIFT;
-    mo->momx = FixedMul (mo->info->speed, finecosine[an]);
-    mo->momy = FixedMul (mo->info->speed, finesine[an]);
+    fixed_t res[2];
+    calc_dx_dy(mo->info->speed, an, res);
+    mo->momx = res[0];
+    mo->momy = res[1];
 
     mo = P_SpawnMissile (actor, target, MT_FATSHOT);
     mo->angle += FATSPREAD/2;
     an = mo->angle >> ANGLETOFINESHIFT;
-    mo->momx = FixedMul (mo->info->speed, finecosine[an]);
-    mo->momy = FixedMul (mo->info->speed, finesine[an]);
+    calc_dx_dy(mo->info->speed, an, res);
+    mo->momx = res[0];
+    mo->momy = res[1];
 }
 
 
@@ -1427,8 +1453,10 @@ void A_SkullAttack (mobj_t* actor)
     S_StartSound (actor, actor->info->attacksound);
     A_FaceTarget (actor);
     an = actor->angle >> ANGLETOFINESHIFT;
-    actor->momx = FixedMul (SKULLSPEED, finecosine[an]);
-    actor->momy = FixedMul (SKULLSPEED, finesine[an]);
+    fixed_t res[2];
+    calc_dx_dy(SKULLSPEED, an, res);
+    actor->momx = res[0];
+    actor->momy = res[1];
     dist = P_AproxDistance (dest->x - actor->x, dest->y - actor->y);
     dist = dist / SKULLSPEED;
     
@@ -1482,8 +1510,11 @@ A_PainShootSkull
 	4*FRACUNIT
 	+ 3*(actor->info->radius + mobjinfo[MT_SKULL].radius)/2;
     
-    x = actor->x + FixedMul (prestep, finecosine[an]);
-    y = actor->y + FixedMul (prestep, finesine[an]);
+    fixed_t res[2];
+    calc_dx_dy(prestep, an, res);
+
+    x = actor->x + res[0];
+    y = actor->y + res[1];
     z = actor->z + 8*FRACUNIT;
 		
     newmobj = P_SpawnMobj (x , y, z, MT_SKULL);
