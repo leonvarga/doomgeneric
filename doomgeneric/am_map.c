@@ -98,12 +98,7 @@
 // pulls out to 0.5x in 1 second
 #define M_ZOOMOUT       ((int) (FRACUNIT/1.02))
 
-// translates between frame-buffer and map distances
-#define FTOM(x) FixedMul(((x)<<16),scale_ftom)
-#define MTOF(x) (FixedMul((x),scale_mtof)>>16)
-// translates between frame-buffer and map coordinates
-#define CXMTOF(x)  (f_x + MTOF((x)-m_x))
-#define CYMTOF(y)  (f_y + (f_h - MTOF((y)-m_y)))
+
 
 // the following is crap
 #define LINE_NEVERSEE ML_DONTDRAW
@@ -134,6 +129,9 @@ typedef struct
 } islope_t;
 
 
+mpoint_t convert_ftom(fixed_t x, fixed_t y);
+mpoint_t convert_mtof(fixed_t x, fixed_t y);
+mpoint_t convert_cmtof(fixed_t x, fixed_t y);
 
 //
 // The vector graphics for the automap.
@@ -280,10 +278,15 @@ AM_getIslope
 
     dy = ml->a.y - ml->b.y;
     dx = ml->b.x - ml->a.x;
+
+    fixed_t as[2] = {dx, dy};
+    fixed_t bs[2] = {dy, dx};
+    fixed_t_2d slope = FixedDiv_batched_2D(as, bs);
+
     if (!dy) is->islp = (dx<0?-INT_MAX:INT_MAX);
-    else is->islp = FixedDiv(dx, dy);
+    else is->islp = slope.x;
     if (!dx) is->slp = (dy<0?-INT_MAX:INT_MAX);
-    else is->slp = FixedDiv(dy, dx);
+    else is->slp = slope.y;
 
 }
 
@@ -294,8 +297,10 @@ void AM_activateNewScale(void)
 {
     m_x += m_w/2;
     m_y += m_h/2;
-    m_w = FTOM(f_w);
-    m_h = FTOM(f_h);
+    
+    mpoint_t m = convert_ftom(f_w, f_h);
+    m_w = m.x;
+    m_h = m.y;
     m_x -= m_w/2;
     m_y -= m_h/2;
     m_x2 = m_x + m_w;
@@ -333,8 +338,18 @@ void AM_restoreScaleAndLoc(void)
     m_y2 = m_y + m_h;
 
     // Change the scaling multipliers
-    scale_mtof = FixedDiv(f_w<<FRACBITS, m_w);
-    scale_ftom = FixedDiv(FRACUNIT, scale_mtof);
+    // @author Leon Varga
+    // ftom is now calculated based on the inversed division,
+    // as using 1/x would required two depending divisions
+    fixed_t as[2]={f_w<<FRACBITS, m_w};
+    fixed_t bs[2]={m_w, f_w<<FRACBITS};
+    fixed_t_2d scales = FixedDiv_batched_2D(as, bs);
+
+    scale_mtof = scales.x;
+    scale_ftom = scales.y;
+
+    // scale_mtof = FixedDiv(f_w<<FRACBITS, m_w);
+    // scale_ftom = FixedDiv(FRACUNIT, scale_mtof);
 }
 
 //
@@ -380,12 +395,17 @@ void AM_findMinMaxBoundaries(void)
     min_w = 2*PLAYERRADIUS; // const? never changed?
     min_h = 2*PLAYERRADIUS;
 
-    a = FixedDiv(f_w<<FRACBITS, max_w);
-    b = FixedDiv(f_h<<FRACBITS, max_h);
+    fixed_t as[3] = {f_w<<FRACBITS, f_h<<FRACBITS, f_h<<FRACBITS};
+    fixed_t bs[3] = {max_w, max_h, PLAYERRADIUS<<1};
+    fixed_t res[3];
+
+    FixedDiv_batched(as, bs, res, 3);
+
+    a = res[0];
+    b = res[1];
   
     min_scale_mtof = a < b ? a : b;
-    max_scale_mtof = FixedDiv(f_h<<FRACBITS, 2*PLAYERRADIUS);
-
+    max_scale_mtof = res[2];
 }
 
 
@@ -437,8 +457,9 @@ void AM_initVariables(void)
     ftom_zoommul = FRACUNIT;
     mtof_zoommul = FRACUNIT;
 
-    m_w = FTOM(f_w);
-    m_h = FTOM(f_h);
+    mpoint_t m = convert_ftom(f_w, f_h);
+    m_w = m.x;
+    m_h = m.y;
 
     // find player to center on initially
     if (playeringame[consoleplayer])
@@ -526,10 +547,18 @@ void AM_LevelInit(void)
     AM_clearMarks();
 
     AM_findMinMaxBoundaries();
-    scale_mtof = FixedDiv(min_scale_mtof, (int) (0.7*FRACUNIT));
+
+    fixed_t as[2] = {min_scale_mtof, (int) (0.7*FRACUNIT)};
+    fixed_t bs[2] = {(int) (0.7*FRACUNIT), min_scale_mtof};
+    fixed_t_2d scales = FixedDiv_batched_2D(as, bs);
+
+    scale_mtof = scales.x;
+    scale_ftom = scales.y;
     if (scale_mtof > max_scale_mtof)
+    {
 	scale_mtof = min_scale_mtof;
-    scale_ftom = FixedDiv(FRACUNIT, scale_mtof);
+	scale_ftom = min_scale_mtof;
+    }
 }
 
 
@@ -573,7 +602,8 @@ void AM_Start (void)
 void AM_minOutWindowScale(void)
 {
     scale_mtof = min_scale_mtof;
-    scale_ftom = FixedDiv(FRACUNIT, scale_mtof);
+    scale_ftom = FixedDiv_batched_1D(FRACUNIT, scale_mtof);
+
     AM_activateNewScale();
 }
 
@@ -583,7 +613,7 @@ void AM_minOutWindowScale(void)
 void AM_maxOutWindowScale(void)
 {
     scale_mtof = max_scale_mtof;
-    scale_ftom = FixedDiv(FRACUNIT, scale_mtof);
+    scale_ftom = FixedDiv_batched_1D(FRACUNIT, scale_mtof);
     AM_activateNewScale();
 }
 
@@ -619,22 +649,22 @@ AM_Responder
 
         if (key == key_map_east)          // pan right
         {
-            if (!followplayer) m_paninc.x = FTOM(F_PANINC);
+            if (!followplayer) m_paninc.x = convert_ftom(F_PANINC, 0).x;
             else rc = false;
         }
         else if (key == key_map_west)     // pan left
         {
-            if (!followplayer) m_paninc.x = -FTOM(F_PANINC);
+            if (!followplayer) m_paninc.x = -convert_ftom(F_PANINC, 0).x;
             else rc = false;
         }
         else if (key == key_map_north)    // pan up
         {
-            if (!followplayer) m_paninc.y = FTOM(F_PANINC);
+            if (!followplayer) m_paninc.y = convert_ftom(F_PANINC, 0).x;
             else rc = false;
         }
         else if (key == key_map_south)    // pan down
         {
-            if (!followplayer) m_paninc.y = -FTOM(F_PANINC);
+            if (!followplayer) m_paninc.y = -convert_ftom(F_PANINC, 0).x;
             else rc = false;
         }
         else if (key == key_map_zoomout)  // zoom out
@@ -743,8 +773,8 @@ void AM_changeWindowScale(void)
 {
 
     // Change the scaling multipliers
-    scale_mtof = FixedMul(scale_mtof, mtof_zoommul);
-    scale_ftom = FixedDiv(FRACUNIT, scale_mtof);
+    scale_mtof = FixedMul_batched_1D(scale_mtof, mtof_zoommul);
+    scale_ftom = FixedDiv_batched_1D(FRACUNIT, scale_mtof);
 
     if (scale_mtof < min_scale_mtof)
 	AM_minOutWindowScale();
@@ -763,17 +793,14 @@ void AM_doFollowPlayer(void)
 
     if (f_oldloc.x != plr->mo->x || f_oldloc.y != plr->mo->y)
     {
-	m_x = FTOM(MTOF(plr->mo->x)) - m_w/2;
-	m_y = FTOM(MTOF(plr->mo->y)) - m_h/2;
+        mpoint_t m = convert_mtof(plr->mo->x, plr->mo->y);
+        m = convert_ftom(m.x, m.y);
+	m_x = m.x - m_w/2;
+	m_y = m.y - m_h/2;
 	m_x2 = m_x + m_w;
 	m_y2 = m_y + m_h;
 	f_oldloc.x = plr->mo->x;
 	f_oldloc.y = plr->mo->y;
-
-	//  m_x = FTOM(MTOF(plr->mo->x - m_w/2));
-	//  m_y = FTOM(MTOF(plr->mo->y - m_h/2));
-	//  m_x = plr->mo->x - m_w/2;
-	//  m_y = plr->mo->y - m_h/2;
 
     }
 
@@ -902,10 +929,12 @@ AM_clipMline
 	return false; // trivially outside
 
     // transform to frame-buffer coordinates.
-    fl->a.x = CXMTOF(ml->a.x);
-    fl->a.y = CYMTOF(ml->a.y);
-    fl->b.x = CXMTOF(ml->b.x);
-    fl->b.y = CYMTOF(ml->b.y);
+    mpoint_t f = convert_cmtof(ml->a.x, ml->a.y); 
+    fl->a.x = f.x;
+    fl->a.y = f.y;
+    f = convert_cmtof(ml->b.x, ml->b.y); 
+    fl->b.x = f.x;
+    fl->b.y = f.y;
 
     DOOUTCODE(outcode1, fl->a.x, fl->a.y);
     DOOUTCODE(outcode2, fl->b.x, fl->b.y);
@@ -1183,13 +1212,14 @@ AM_rotate
 {
     fixed_t tmpx;
 
-    tmpx =
-	FixedMul(*x,finecosine[a>>ANGLETOFINESHIFT])
-	- FixedMul(*y,finesine[a>>ANGLETOFINESHIFT]);
-    
-    *y   =
-	FixedMul(*x,finesine[a>>ANGLETOFINESHIFT])
-	+ FixedMul(*y,finecosine[a>>ANGLETOFINESHIFT]);
+    int angle = a>>ANGLETOFINESHIFT;
+    fixed_t as[4] = {*x, *y, *x, *y};
+    fixed_t bs[4] = {finecosine[angle], finesine[angle], finesine[angle], finecosine[angle]};
+    fixed_t res[4];
+    FixedMul_batched(as, bs, res, 4);
+
+    tmpx = res[0]-res[1];
+    *y   = res[2]+res[3];
 
     *x = tmpx;
 }
@@ -1214,8 +1244,6 @@ AM_drawLineCharacter
 
 	if (scale)
 	{
-	    l.a.x = FixedMul(scale, l.a.x);
-	    l.a.y = FixedMul(scale, l.a.y);
 	}
 
 	if (angle)
@@ -1229,8 +1257,13 @@ AM_drawLineCharacter
 
 	if (scale)
 	{
-	    l.b.x = FixedMul(scale, l.b.x);
-	    l.b.y = FixedMul(scale, l.b.y);
+	    fixed_t as[4] = {l.a.x, l.a.y, l.b.x, l.b.y};
+	    fixed_t res[4];
+	    FixedMul_scalar(as, scale, res, 4);
+	    l.a.x = res[0];
+	    l.a.y = res[1];
+	    l.b.x = res[2];
+	    l.b.y = res[3];
 	}
 
 	if (angle)
@@ -1312,6 +1345,7 @@ void AM_drawMarks(void)
 {
     int i, fx, fy, w, h;
 
+    // TODO: could be optimized
     for (i=0;i<AM_NUMMARKPOINTS;i++)
     {
 	if (markpoints[i].x != -1)
@@ -1320,8 +1354,9 @@ void AM_drawMarks(void)
 	    //      h = SHORT(marknums[i]->height);
 	    w = 5; // because something's wrong with the wad, i guess
 	    h = 6; // because something's wrong with the wad, i guess
-	    fx = CXMTOF(markpoints[i].x);
-	    fy = CYMTOF(markpoints[i].y);
+	    mpoint_t f = convert_cmtof(markpoints[i].x, markpoints[i].y);
+	    fx = f.x;
+	    fy = f.y;
 	    if (fx >= f_x && fx <= f_w - w && fy >= f_y && fy <= f_h - h)
 		V_DrawPatch(fx, fy, marknums[i]);
 	}
@@ -1352,4 +1387,66 @@ void AM_Drawer (void)
 
     V_MarkRect(f_x, f_y, f_w, f_h);
 
+}
+
+
+// translates between frame-buffer and map distances
+// as batched for 2 dimensions
+// @author Leon Varga
+// #define FTOM(x) FixedMul(((x)<<16),scale_ftom)
+mpoint_t convert_ftom(fixed_t x, fixed_t y) {
+	fixed_t as[2];
+	fixed_t bs[2];
+	fixed_t res[2];
+
+	as[0] = x << 16;
+	as[1] = y << 16;
+
+	bs[0] = scale_ftom;
+	bs[1] = scale_ftom;
+
+	FixedMul_batched(as, bs, res, 2);
+
+	mpoint_t ret;
+	ret.x = res[0];
+	ret.y = res[1];
+
+	return ret;
+}
+
+// translates between frame-buffer and map coordinates
+// as batched for 2 dimensions
+// @author Leon Varga
+// #define MTOF(x) (FixedMul((x),scale_mtof)>>16)
+mpoint_t convert_mtof(fixed_t x, fixed_t y) {
+	fixed_t as[2];
+	fixed_t bs[2];
+	fixed_t res[2];
+
+	as[0] = x;
+	as[1] = y;
+
+	bs[0] = scale_mtof;
+	bs[1] = scale_mtof;
+
+	FixedMul_batched(as, bs, res, 2);
+
+	mpoint_t ret;
+	ret.x = res[0] >> 16;
+	ret.y = res[1] >> 16;
+
+	return ret;
+}
+
+// as batched mode
+// @author Leon Varga
+// #define CXMTOF(x)  (f_x + MTOF((x)-m_x))
+// #define CYMTOF(y)  (f_y + (f_h - MTOF((y)-m_y)))
+mpoint_t convert_cmtof(fixed_t x, fixed_t y) {
+	mpoint_t m = convert_mtof(x-m_x, y-m_y);
+
+	m.x += f_x;
+	m.y = (f_h - m_y) + f_y;
+
+	return m;
 }
